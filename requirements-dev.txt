@@ -1,0 +1,7 @@
+
+# used in test-scripts under bin:
+chainscan
+
+# used in bin/fetch_from_blockchaininfo.py (useful when debugging):
+requests
+bs4
