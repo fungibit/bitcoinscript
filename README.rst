@@ -1,4 +1,6 @@
 
+.. image:: https://raw.githubusercontent.com/fungibit/bitcoinscript/master/docs/logo.jpg
+
 ==============
 BitcoinScript
 ==============
