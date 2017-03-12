@@ -60,11 +60,11 @@ Install using *pip*::
     pip install bitcoinscript
 
 
-For an easy start, see the `examples <#Examples>`_.
+For an easy start, see the `examples <#code-examples>`_.
 
 
-Examples
-==========
+Code Examples
+==============
 
 This section includes various examples of using the bitcoinscript library, and
 demonstrates some of the main features.
