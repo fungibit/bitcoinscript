@@ -185,7 +185,8 @@ Again, we start with a sample script.
 Counting Script Types
 -------------------------
 
-We loop over the blockchain using `chainscan`, counting outscripts' script-type.
+We loop over the blockchain using `chainscan <https://chainscan.readthedocs.io/en/latest/index.html>`_,
+counting outscripts' script-type.
 
 ::
 
@@ -214,7 +215,7 @@ In this example we count P2SH redeem-script types.
 Naturally, this only includes *spent* P2SH scripts, because redeem scripts are only
 revealed upon spending.
 
-Again, we're using `chainscan` for looping over the blockchain.
+Again, we're using `chainscan <https://chainscan.readthedocs.io/en/latest/index.html>`_ for looping over the blockchain.
 
 :note: Running this example consumes at least 7GB of memory (due to `track_scripts` mode).
 
