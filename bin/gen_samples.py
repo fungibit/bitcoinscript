@@ -17,7 +17,8 @@ def main():
     
     scripts = {}
     p2sh_scripts = {}
-    for tx in iter_txs(track_scripts = True, block_filter = BlockFilter(stop_block_height = options.stop_block_height)):
+    for tx in iter_txs(track_scripts = True, include_tx_blob = True,
+                       block_filter = BlockFilter(stop_block_height = options.stop_block_height)):
 
         # OUTPUTS -- for provably-unspendable only
         for oidx, txoutput in enumerate(tx.outputs):
@@ -28,6 +29,7 @@ def main():
                     inscript = None,
                     iidx = None,
                     txid = tx.txid_hex,
+                    txblob = bytes(tx.blob).hex(),
                     oidx = oidx,
                 )
 
@@ -44,6 +46,7 @@ def main():
                 inscript = inscript.hex,
                 iidx = iidx,
                 txid = tx.txid_hex,
+                txblob = bytes(tx.blob).hex(),
                 oidx = txinput.spent_output_idx,
             )
             if script_type == ScriptType.P2SH:
