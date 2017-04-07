@@ -7,28 +7,33 @@ from .opcode import get_opcode_by_name, encode_op_pushdata
 
 ################################################################################
 
-def format_script(x, delim = ' '):
+def format_script(x, delim = ' ', **kwargs):
     """
     Format a script as a human-readable string.
 
-    >>> format_script(bytes.fromhex('76a91492b8c3a56fac121ddcdffbc85b02fb9ef681038a88ac'))
+    >>> format_script(bytes.fromhex('76a91492b8c3a56fac121ddcdffbc85b02fb9ef681038a88ac'), max_value_len=100)
     'OP_DUP OP_HASH160 92b8c3a56fac121ddcdffbc85b02fb9ef681038a OP_EQUALVERIFY OP_CHECKSIG'
     """
-    return delim.join(iter_script_parts_as_strings(x))
+    return delim.join(iter_script_parts_as_strings(x, **kwargs))
 
-def iter_script_parts_as_strings(x):
+def iter_script_parts_as_strings(x, max_value_len = 19, empty_value_string = '<<empty>>'):
     for token in iter_script_parts(x):
         try:
             token_str = token.hex()
         except AttributeError:
             token_str = str(token)
+        if len(token_str) > max_value_len:
+            part_len = (max_value_len - 3) // 2
+            assert part_len > 0, part_len
+            token_str = '%s...%s' % (token_str[:part_len], token_str[-part_len:])
+        if len(token_str) == 0:
+            token_str = empty_value_string
         yield token_str
     
 def iter_script_parts(x):
     x = getattr(x, 'raw', x)
     x = _CScript(x)
-    for token in x:
-        yield token
+    return iter(x)
 
 def raw_iter_script(x):
     x = getattr(x, 'raw', x)
