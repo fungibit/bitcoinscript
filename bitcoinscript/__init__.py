@@ -2,7 +2,7 @@
 BitcoinScript
 ==============
 
-*Friendly interface for bitcoin scripts.*
+*Bitcoin Script Debugger and Interactive Shell.*
 """
 
 from .address import Address, to_address

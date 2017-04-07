@@ -5,10 +5,9 @@
 BitcoinScript
 ==============
 
-*Friendly interface for bitcoin scripts.*
+*Bitcoin Script Debugger and Interactive Shell.*
 
-For an easy start, see the `examples section <http://bitcoinscript.readthedocs.io#code-examples>`_
-of `the docs <http://bitcoinscript.readthedocs.io/>`_.
+For an easy start, see `the docs <http://bitcoinscript.readthedocs.io/>`_.
 
 Installation
 ==============

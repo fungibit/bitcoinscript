@@ -18,7 +18,7 @@ version_string = version_vars['__version_string__']
 
 setup(
     name='bitcoinscript',
-    description='Friendly interface for bitcoin scripts',
+    description='Bitcoin Script Debugger and Interactive Shell',
     long_description=long_description,
     version=version_string,
 

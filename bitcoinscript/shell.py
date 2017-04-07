@@ -104,6 +104,8 @@ class BitcoinScriptMagics(_MAGIC.Magics):
         if self._flags:
             print(' Flags:  %s' % ' '.join(_SCRIPT_VERIFY_FLAG_TO_NAME[f] for f in self._flags))
         for k, v in sorted(self._ctx.items()):
+            if v is None:
+                continue
             if isinstance(v, bytes):
                 v = v.hex()
             print(' Context: %s = %s' % (k, v))
