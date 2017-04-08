@@ -1,6 +1,3 @@
 
 # BitcoinScript is built on top of python-bitcoinlib (package name is bitcoin)
 bitcoin
-
-# The in-terminal debugger uses curses:
-curses
