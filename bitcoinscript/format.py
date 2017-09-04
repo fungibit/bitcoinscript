@@ -50,12 +50,37 @@ def parse_formatted_script(x):
     """
     b = b''
     for token in x.split():
-        if token.startswith('OP_'):
-            # OP_xxx
-            b += get_opcode_by_name(token).to_bytes(1, byteorder = 'big')
-        else:
-            # push data
-            b += encode_op_pushdata(bytes.fromhex(token))
+        b += _parse_token(token)
     return b
+
+def _parse_token(token):
+    
+    if token.endswith('[]'):
+        token = token[:-len('[]')]
+        
+    #### NON_OP:
+    if token.startswith('NON_OP('):
+        assert token[-1] == ')', token
+        return int(token[len('NON_OP(') : -1]).to_bytes(1, byteorder = 'little')
+    
+    #### OP_xxx:
+    if token.startswith('OP_'):
+        return get_opcode_by_name(token).to_bytes(1, byteorder = 'big')
+    # try a "OP_"-less OP:
+    try:
+        return _parse_token('OP_' + token)
+    except KeyError:
+        pass
+    
+    #### PUSHDATA:
+    if token.startswith('PUSHDATA'):
+        # explicit pushdata
+        assert token[-1] == ']', token
+        i = token.find('[')
+        hexblob = token[i+1 : -1]
+        return encode_op_pushdata(bytes.fromhex(hexblob))
+    else:
+        # implicit pushdata
+        return encode_op_pushdata(bytes.fromhex(token))
     
 ################################################################################

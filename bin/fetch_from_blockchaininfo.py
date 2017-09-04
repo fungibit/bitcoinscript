@@ -52,6 +52,9 @@ def extract_txindex(page, input_idx):
 def clean_formatted_script(s):
     if 'Empty' in s:
         return ''
+    s = s.strip()
+    if s.startswith('ScriptSig: '):
+        s = s[len('ScriptSig: '):]
     s = s.splitlines()[0]
     for suffix in [ '(decoded)' ]:
         if s.endswith(suffix):
