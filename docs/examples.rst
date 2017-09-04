@@ -135,12 +135,14 @@ counting outscripts' script-type.
 
 Output::
 
-    Counter({<ScriptType.P2PK: 1>: 1055626,
-             <ScriptType.P2PKH: 2>: 483193439,
-             <ScriptType.P2MULTISIG: 4>: 573094,
-             <ScriptType.PROVABLY_UNSPENDABLE: 0>: 1847286,
-             <ScriptType.P2SH: 3>: 49576354,
-             <ScriptType.OTHER: -1>: 221319})
+    Counter({<ScriptType.HASH_PREIMAGE: 7>: 52,
+             <ScriptType.PROVABLY_UNSPENDABLE: 0>: 3087707,
+             <ScriptType.IF: 6>: 5,
+             <ScriptType.P2PKH: 2>: 602810633,
+             <ScriptType.P2PK: 1>: 1315266,
+             <ScriptType.P2SH: 3>: 76651788,
+             <ScriptType.P2MULTISIG: 4>: 574887,
+             <ScriptType.OTHER: -1>: 221676})
 
 
 Counting P2SH "Script Subtypes"
@@ -173,10 +175,13 @@ Again, we're using `chainscan <https://chainscan.readthedocs.io/en/latest/index.
 
 Output::
 
-    Counter({<ScriptType.P2PKH: 2>: 447,
-             <ScriptType.P2MULTISIG: 4>: 41725112,
-             <ScriptType.P2PK: 1>: 176,
-             <ScriptType.OTHER: -1>: 109910})
+    Counter({<ScriptType.TIMELOCK: 5>: 430,
+             <ScriptType.IF: 6>: 2052,
+             <ScriptType.P2MULTISIG: 4>: 67757802,
+             <ScriptType.OTHER: -1>: 108141,
+             <ScriptType.P2PKH: 2>: 447,
+             <ScriptType.P2PK: 1>: 6903,
+             <ScriptType.HASH_PREIMAGE: 7>: 136})
 
 
 Verifying All scripts

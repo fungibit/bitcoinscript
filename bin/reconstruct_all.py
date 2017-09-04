@@ -15,13 +15,15 @@ from argparse import ArgumentParser
 from chainscan import iter_txs
 
 from bitcoinscript import outscript_from_raw, inscript_from_raw, ScriptType
-from bitcoinscript.script import OutScript, OutScriptP2PKH, OutScriptP2PK, OutScriptP2SH, OutScriptP2Multisig, OutScriptProvablyUnspendable
-from bitcoinscript.script import InScript, InScriptP2PKH, InScriptP2PK, InScriptP2SH, InScriptP2Multisig
+from bitcoinscript.script import OutScript, OutScriptP2PKH, OutScriptP2PK, OutScriptP2SH, OutScriptP2Multisig, OutScriptHashPreImage, OutScriptTimeLock, OutScriptIf, OutScriptProvablyUnspendable
+from bitcoinscript.script import InScript, InScriptP2PKH, InScriptP2PK, InScriptP2SH, InScriptP2Multisig, InScriptHashPreImage, InScriptIf
 
 
 ###############################################################################
 
 def reconstruct(script, **kw):
+    if script.type == ScriptType.OTHER:
+        return script
     
     # OUTPUTS
     if isinstance(script, OutScript):
@@ -42,6 +44,18 @@ def reconstruct(script, **kw):
             num_required = script.num_required
             if pubkeys is not None:
                 return OutScriptP2Multisig.from_pubkeys(pubkeys, num_required, **kw)
+        elif script.type == ScriptType.HASH_PREIMAGE:
+            return OutScriptHashPreImage.from_hashes(script.hash_function, script.hashes, **kw)
+        elif script.type == ScriptType.TIMELOCK:
+            inner_script2 = reconstruct(script.inner_script, **kw)
+            return OutScriptTimeLock.from_script(inner_script2, script.locktime, **kw)
+        elif script.type == ScriptType.IF:
+            if_true_script2 = reconstruct(script.if_true_script, **kw)
+            if script.if_false_script is not None:
+                if_false_script2 = reconstruct(script.if_false_script, **kw)
+            else:
+                if_false_script2 = None
+            return OutScriptIf.from_scripts(if_true_script2, if_false_script2, **kw)
         elif script.type == ScriptType.PROVABLY_UNSPENDABLE:
             return OutScriptProvablyUnspendable.from_unused_data(script.unused_data, **kw)
         else:
@@ -62,18 +76,18 @@ def reconstruct(script, **kw):
             redeem_script = script.redeem_script
             redeem_inscript = script.redeem_inscript
             if redeem_script is not None and redeem_inscript is not None:
-                if redeem_script.type != ScriptType.OTHER and redeem_inscript.type != ScriptType.OTHER:
-                    # "deep" reconsruction:
-                    redeem_script2 = reconstruct(redeem_script, **kw)
-                    redeem_inscript2 = reconstruct(redeem_inscript, **kw)
-                    return InScriptP2SH.from_redeem_scripts(redeem_script2, redeem_inscript2, **kw)
-                else:
-                    # "shallow" reconsruction:
-                    return InScriptP2SH.from_redeem_scripts(redeem_script, redeem_inscript, **kw)
+                # "deep" reconsruction:
+                redeem_script2 = reconstruct(redeem_script, **kw)
+                redeem_inscript2 = reconstruct(redeem_inscript, **kw)
+                return InScriptP2SH.from_redeem_scripts(redeem_script2, redeem_inscript2, **kw)
         elif script.type == ScriptType.P2MULTISIG:
             signatures = script.signatures
             if signatures is not None:
                 return InScriptP2Multisig.from_signatures(signatures, unused_data = script.unused_data, **kw)
+        elif script.type == ScriptType.HASH_PREIMAGE:
+            return InScriptHashPreImage.from_preimages(script.preimages, **kw)
+        elif script.type == ScriptType.IF:
+            return InScriptIf.from_condition_value(script.condition_value_raw, script.inner_inscript_raw, **kw)
         else:
             assert 0, script.type
     else:
@@ -85,6 +99,11 @@ def reconstruct_and_test(tx, script, idx, desc):
         return
 
     raw1 = script.raw
+    
+    # Note: this attempt to use different pushdata to achieve the original script exactly
+    # is still not tight, because the pushdata value is applied "globally" when reconstructing
+    # the script (i.e. for all PUSHDATA in the script), while in some cases what we need is
+    # different values for different PUSHDATAs.
     for pushdata in [ None, 1, 2, 4 ]:
         try:
             script2 = reconstruct(script, force_pushdata = pushdata)
@@ -95,8 +114,8 @@ def reconstruct_and_test(tx, script, idx, desc):
             return
         raw2 = script2.raw
         if raw1 == raw2:
-            if pushdata is not None:
-                print('* mismatch reconciled with force_pushdata: %s %s#%s' % (tx.txid_hex, desc, idx))
+            #if pushdata is not None:
+            #    print('* mismatch reconciled with force_pushdata: %s %s#%s' % (tx.txid_hex, desc, idx))
             return
         if pushdata is None:
             orig_raw2 = raw2

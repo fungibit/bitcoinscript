@@ -17,8 +17,18 @@ def main():
     
     scripts = {}
     p2sh_scripts = {}
-    for tx in iter_txs(track_scripts = True, include_tx_blob = True,
-                       block_filter = BlockFilter(stop_block_height = options.stop_block_height)):
+    
+    tx_iterator = iter_txs(
+        track_scripts = True,
+        include_tx_blob = True,
+        include_block_context = True,
+        block_filter = BlockFilter(stop_block_height = options.stop_block_height),
+    )
+    for tx in tx_iterator:
+
+        # no reason to inflate samples.py with big transactions
+        if len(tx.blob) > 2048:
+            continue
 
         # OUTPUTS -- for provably-unspendable only
         for oidx, txoutput in enumerate(tx.outputs):
@@ -31,6 +41,7 @@ def main():
                     txid = tx.txid_hex,
                     txblob = bytes(tx.blob).hex(),
                     oidx = oidx,
+                    block_height = tx.block.height,
                 )
 
         if tx.is_coinbase:
@@ -48,10 +59,14 @@ def main():
                 txid = tx.txid_hex,
                 txblob = bytes(tx.blob).hex(),
                 oidx = txinput.spent_output_idx,
+                block_height = tx.block.height,
             )
             if script_type == ScriptType.P2SH:
                 redeem_script = inscript.redeem_script
-                if redeem_script is not None:
+                # if TIMELOCK script, for simplicity, only include if it is a timelocked P2PK
+                if (redeem_script is not None and
+                    (redeem_script.type != ScriptType.TIMELOCK or
+                     redeem_script.inner_script.type == ScriptType.P2PK)):
                     p2sh_scripts[redeem_script.type.name] = dict(d, rscript = redeem_script.hex)
             else:
                 scripts[script_type.name] = d
@@ -104,7 +119,7 @@ def main():
 
 def getopt():
     parser = ArgumentParser()
-    parser.add_argument('-b', '--stop_block_height', type = int, default = 350000)
+    parser.add_argument('-b', '--stop_block_height', type = int, default = 450000)
     return parser.parse_args()
 
 ###############################################################################
