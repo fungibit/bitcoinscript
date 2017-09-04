@@ -120,14 +120,14 @@ def to_hash_function(x):
     """
     A convenience function for convert anything to a hash function.
     
-    >>> to_hash_function(SHA1)
-    <function bitcoinscript.opcode.SHA1>
-    >>> to_hash_function(OP_SHA1)
-    <function bitcoinscript.opcode.SHA1>
-    >>> to_hash_function('SHA1')
-    <function bitcoinscript.opcode.SHA1>
-    >>> to_hash_function('OP_SHA1')
-    <function bitcoinscript.opcode.SHA1>
+    >>> to_hash_function(SHA1).__name__
+    'SHA1'
+    >>> to_hash_function(OP_SHA1).__name__
+    'SHA1'
+    >>> to_hash_function('SHA1').__name__
+    'SHA1'
+    >>> to_hash_function('OP_SHA1').__name__
+    'SHA1'
     """
     orig_x = x
     x = getattr(x, '__name__', x)  # function -> name
