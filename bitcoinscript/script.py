@@ -2,17 +2,28 @@
 Definition of the concrete (in and out) script types.
 """
 
+import datetime
+import itertools
+
 from .misc import classproperty
 from .basic import (
     ScriptType, InvalidScriptError,
     get_hash160_from_outscript_p2pkh, get_hash160_from_outscript_p2pk,
     get_hash160_from_outscript_p2sh, get_pubkey_from_outscript_p2pk,
-    get_script_hash160_for_p2sh, get_outscript_type, )
+    get_script_hash160_for_p2sh,
+    get_outscript_type, parse_if_else,
+    iter_script_parts, iter_script_raw,
+    LOCKTIME_THRESHOLD, )
+from .opcode import to_hash_function
 from .address import Address
 from .signature import Signature
 from .compose import compose_from_template
-from .format import format_script, iter_script_parts, raw_iter_script
-from .opcode import OP_RETURN, OP_DUP, OP_HASH160,OP_EQUAL, OP_EQUALVERIFY, OP_CHECKSIG, OP_CHECKMULTISIG
+from .format import format_script, format_data_token
+from .opcode import (
+    OP_RETURN, OP_DUP, OP_DROP, OP_HASH160,OP_EQUAL, OP_EQUALVERIFY,
+    OP_IF, OP_ELSE, OP_ENDIF, OP_TRUE, OP_FALSE,
+    OP_CHECKSIG, OP_CHECKMULTISIG, OP_CHECKLOCKTIMEVERIFY,
+    )
 
 
 ################################################################################
@@ -209,6 +220,84 @@ class OutScriptP2SH(OutScript):
     def _compose(cls, script_hash, **kwargs):
         return compose_from_template(cls._TEMPLATE, script_hash = script_hash, **kwargs)
 
+class OutScriptTimeLock(OutScript):
+    """
+    A time-locked OutScript, containing a time-lock condition, and the "rest" of the script
+    (the "inner" script), which is itself an OutScript.
+    """
+
+    type = ScriptType.TIMELOCK
+    
+    _TEMPLATE = [ 'PUSH:locktime', OP_CHECKLOCKTIMEVERIFY, OP_DROP, 'inner_script' ]
+
+    @classproperty
+    def InScriptType(cls):
+        # Could be any InScript (depending on the type of self.inner_script)
+        return None
+    
+    @property
+    def locktime(self):
+        """
+        The "raw" locktime value (int).  Can represent either block height or specific time.
+        """
+        locktime_bytes = next(iter(self))
+        return int.from_bytes(locktime_bytes, byteorder = 'little')
+    
+    @property
+    def locktime_block_height(self):
+        """
+        The block-height value of locktime. This is None unless locktime represents a block height.
+        """
+        if self.is_locked_to_block_height:
+            return self.locktime
+    
+    @property
+    def locktime_datetime(self):
+        """
+        The datetime value of locktime. This is None unless locktime represents specific time.
+        """
+        if not self.is_locked_to_block_height:
+            return datetime.datetime.fromtimestamp(self.locktime)
+    
+    @property
+    def is_locked_to_block_height(self):
+        return self.locktime < LOCKTIME_THRESHOLD
+
+    @property
+    def inner_script(self):
+        return outscript_from_raw(self.inner_script_raw)
+
+    @property
+    def inner_script_raw(self):
+        for op, _, op_idx in iter_script_raw(self.raw):
+            if op == OP_DROP:
+                break
+        return self.raw[op_idx+1:]  # everything after the OP_DROP
+
+    def __repr__(self):
+        if self.is_locked_to_block_height:
+            lock_str = 'block %s' % self.locktime_block_height
+        else:
+            lock_str = '%s' % self.locktime_datetime
+        return '<%s %r time-locked to %s>' % ( type(self).__name__, self.inner_script, lock_str )
+
+    @classmethod
+    def from_script(cls, inner_script, locktime, **kw):
+        if isinstance(locktime, datetime.datetime):
+            orig_locktime = locktime
+            locktime = int(locktime.timestamp())
+            if locktime < LOCKTIME_THRESHOLD:
+                raise ValueError('Invalid locktime value: %r' % orig_locktime)
+        inner_script = getattr(inner_script, 'raw', inner_script)
+        return cls(cls._compose(inner_script, locktime, **kw))
+
+    @classmethod
+    def _compose(cls, inner_script, locktime, **kwargs):
+        # convert locktime to bytes
+        if isinstance(locktime, int):
+            locktime = locktime.to_bytes(4, byteorder = 'little')
+        return compose_from_template(cls._TEMPLATE, locktime = locktime, inner_script = inner_script, **kwargs)
+
 class OutScriptP2Multisig(OutScript):
     """
     A standard M-of-N P2MULTISIG (pay-to-multisig) OutScript, containing total number of
@@ -297,6 +386,160 @@ class OutScriptP2Multisig(OutScript):
         addrs_str = ','.join(str(addr) for addr in addrs) if addrs else UNKNOWN_STRING
         return '<%s %d-of-%d paying to %s>' % ( type(self).__name__, self.num_required, self.num_total, addrs_str, )
 
+class OutScriptHashPreImage(OutScript):
+    """
+    A hash-preimate OutScript, redeemable by providing the preimage of a hash, or
+    multiple hashes.
+    
+    The structure of the script is the following triplet, repeated for each hash-preimage
+    required: ( hash_op, hash_value, comparison_op ), where hash_op can be any of the hashing
+    operators (OP_SHA256, OP_HASH160, etc.), and comparison_op is OP_EQUAL for the last triplet,
+    and OP_EQUALVERIFY for all the rest.
+    """
+
+    type = ScriptType.HASH_PREIMAGE
+    
+    _TEMPLATE = [ 'hash_op', 'PUSH:hash', 'comparison_op']  # can be repeated
+
+    @classproperty
+    def InScriptType(cls):
+        return InScriptHashPreImage
+    
+    @property
+    def hashes(self):
+        return list(itertools.islice(iter_script_parts(self.raw), 1, None, 3))
+    
+    @property
+    def hash_type(self):
+        return self.hash_function.__name__
+
+    @property
+    def hash_function(self):
+        return to_hash_function(self.hash_opcode)
+
+    @property
+    def hash_opcode(self):
+        return next(iter_script_parts(self.raw))
+    
+    def __repr__(self):
+        hashes_str = ', '.join( format_data_token(hash) for hash in self.hashes )
+        return '<%s[%s] %s>' % ( type(self).__name__, self.hash_type, hashes_str )
+    
+    @classmethod
+    def from_hashes(cls, hash_func, hashes, **kw):
+        return cls(cls._compose(hash_func, hashes, **kw))
+
+    @classmethod
+    def from_preimages(cls, hash_func, preimages, **kw):
+        hash_func = to_hash_function(hash_func)
+        hashes = [ hash_func(pi) for pi in preimages ]
+        return cls.from_hashes(hash_func, hashes, **kw)
+
+    @classmethod
+    def _compose(cls, hash_func, hashes, **kwargs):
+        hash_op = to_hash_function(hash_func).OP
+        n = len(hashes)
+        return b''.join([
+            cls._compose_single(hash_op, hash, is_last = (i==n-1), **kwargs)
+            for i, hash in enumerate(hashes)
+        ])
+
+    @classmethod
+    def _compose_single(cls, hash_op, hash, is_last, **kwargs):
+        return compose_from_template(
+            cls._TEMPLATE,
+            hash_op = hash_op,
+            hash = hash,
+            comparison_op = OP_EQUAL if is_last else OP_EQUALVERIFY,
+            **kwargs
+        )
+
+class OutScriptIf(OutScript):
+    """
+    An if/else OutScript, containing if-true and optional if-false scripts.
+    Note that having multiple OP_ELSE's is not supported by this class.
+    """
+
+    type = ScriptType.IF
+    
+    _TEMPLATE_WITH_ELSE = [ OP_IF, 'if_true_script', OP_ELSE, 'if_false_script', OP_ENDIF ]
+    _TEMPLATE_NO_ELSE  =  [ OP_IF, 'if_true_script',                             OP_ENDIF ]
+
+    @classproperty
+    def InScriptType(cls):
+        return InScriptIf
+    
+    @property
+    def if_true_script(self):
+        return self.inner_scripts[True]
+
+    @property
+    def if_false_script(self):
+        return self.inner_scripts[False]
+
+    @property
+    def has_else(self):
+        _, else_idx, _ = parse_if_else(self.raw)
+        return else_idx is not None
+
+    @property
+    def inner_scripts(self):
+        """
+        A dict with keys [True, False] and values [if_true_script, if_false_script]
+        """
+        return {
+            k: outscript_from_raw(outscript) if outscript is not None else None
+            for k, outscript in self.inner_scripts_raw.items()
+        }
+        
+    @property
+    def inner_scripts_raw(self):
+        """
+        Same as self.inner_scripts, but the values are the raw scripts (bytes).
+        This is faster than using self.inner_scripts.
+        """
+        if_idx, else_idx, endif_idx = parse_if_else(self.raw)
+        if else_idx is not None:
+            return {
+                True:  self.raw[if_idx + 1 : else_idx],
+                False: self.raw[else_idx + 1 : endif_idx],
+            }
+        else:
+            # no OP_ELSE:
+            return {
+                True:  self.raw[if_idx + 1 : endif_idx],
+                False: None,
+            }
+
+    def __repr__(self):
+        if self.has_else:
+            else_str = 'ELSE %r' % self.if_false_script
+        else:
+            else_str = '(no else)'
+        return '<%s %r %s>' % ( type(self).__name__, self.if_true_script, else_str )
+
+    @classmethod
+    def from_scripts(cls, if_true_script, if_false_script, **kw):
+        if_true_script = getattr(if_true_script, 'raw', if_true_script)
+        if_false_script = getattr(if_false_script, 'raw', if_false_script)
+        return cls(cls._compose(if_true_script, if_false_script, **kw))
+
+    @classmethod
+    def _compose(cls, if_true_script, if_false_script, **kwargs):
+        if if_false_script is not None:
+            return compose_from_template(
+                cls._TEMPLATE_WITH_ELSE,
+                if_true_script = if_true_script,
+                if_false_script = if_false_script,
+                **kwargs
+            )
+        else:
+            return compose_from_template(
+                cls._TEMPLATE_NO_ELSE,
+                if_true_script = if_true_script,
+                **kwargs
+            )
+
 class OutScriptProvablyUnspendable(OutScript):
     """
     A provably-unspendable OutScript.
@@ -313,13 +556,7 @@ class OutScriptProvablyUnspendable(OutScript):
 
     @property
     def unused_data(self):
-        # find index of second operator:
-        try:
-            _, _, second_op_idx = raw_iter_script(self.raw)[1]
-        except IndexError:
-            return None
-        else:
-            return self.raw[second_op_idx:]
+        return self.raw[1:]
 
     @classmethod
     def from_unused_data(cls, unused_data, **kw):
@@ -382,7 +619,7 @@ class InScriptP2PKH(InScript):
     def unused_data(self):
         # find index of next-to-last operator:
         try:
-            _, _, next_to_last_op_idx = raw_iter_script(self.raw)[-2]
+            _, _, next_to_last_op_idx = list(iter_script_raw(self.raw))[-2]
         except IndexError:
             return None
         else:
@@ -473,7 +710,7 @@ class InScriptP2SH(InScript):
     @property
     def redeem_inscript_raw(self):
         # find index of last operator:
-        _, _, last_op_idx = list(raw_iter_script(self.raw))[-1]
+        _, _, last_op_idx = list(iter_script_raw(self.raw))[-1]
         return self.raw[:last_op_idx]
     
     @property
@@ -527,7 +764,7 @@ class InScriptP2Multisig(InScript):
         # knowing how many signatures there are.
         op_idxs = []
         signatures = []
-        for _, data, op_idx in raw_iter_script(self.raw):
+        for _, data, op_idx in iter_script_raw(self.raw):
             op_idxs.append(op_idx)
             signatures.append(data)
         op_idxs.append(len(self.raw))  # "end" idx
@@ -557,18 +794,104 @@ class InScriptP2Multisig(InScript):
             s = unused_data + s
         return s
 
+class InScriptHashPreImage(InScript):
+    """
+    A hash-preimage InScript, containing the preimages of the hashes in the outscript.
+    """
+    
+    _TEMPLATE = [ 'PUSH:preimage', ]
+
+    @classproperty
+    def OutScriptType(cls):
+        return OutScriptHashPreImage
+    
+    @property
+    def preimages(self):
+        return list(self)
+    
+    @classmethod
+    def from_preimages(cls, preimages, **kw):
+        return cls(cls._compose(preimages, **kw))
+
+    @classmethod
+    def _compose(cls, preimages, **kwargs):
+        return b''.join([
+            compose_from_template(cls._TEMPLATE, preimage = preimage, **kwargs)
+            for preimage in preimages
+        ])
+
+class InScriptIf(InScript):
+    """
+    An inscript satisfying an IF outscript.  Contains a condition_value (OP_TRUE or OP_FALSE),
+    which indicates if the inscript is satisfying outscripts if_true_script or if_false_script.
+    Also contains an inner inscript, which satisfies the appropriate outscript's inner script
+    (if_true_script or if_false_script).
+    """
+
+    _TEMPLATE = [ 'inner_inscript', 'condition_value' ]
+
+    @classproperty
+    def OutScriptType(cls):
+        return OutScriptIf
+
+    @property
+    def condition_value(self):
+        """
+        Condition value as bool.
+        """
+        return self.condition_value_raw != OP_FALSE
+
+    @property
+    def condition_value_raw(self):
+        """
+        Condition value as a single byte.
+        """
+        return self.raw[-1]
+        
+    @property
+    def inner_inscript_raw(self):
+        """
+        Inner inscript as bytes.
+        """
+        return self.raw[:-1]
+
+    def get_inner_inscript(self, type_or_outscript = None):
+        """
+        Inner inscript, with type corresponding to given outscript type.
+        """
+        return inscript_from_raw(self.inner_inscript_raw, type_or_outscript)
+
+    def __repr__(self):
+        inner = self.get_inner_inscript()
+        return '<%s %r for %s-branch>' % ( type(self).__name__, inner, str(self.condition_value).upper())
+    
+    @classmethod
+    def from_condition_value(cls, condition_value, inner_inscript, **kw):
+        return cls(cls._compose(condition_value, inner_inscript, **kw))
+
+    @classmethod
+    def _compose(cls, condition_value, inner_inscript, **kwargs):
+        if isinstance(condition_value, bool):
+            condition_value = OP_TRUE if condition_value else OP_FALSE
+        return compose_from_template(
+            cls._TEMPLATE,
+            condition_value = condition_value,
+            inner_inscript = inner_inscript,
+            **kwargs
+        )
+    
 
 ################################################################################
 # Useful functions:
 
 OUTPUT_SCRIPT_CLASS_BY_TYPE = {
     _cls.type : _cls for _cls in
-    [ OutScript, OutScriptP2PKH, OutScriptP2PK, OutScriptP2SH, OutScriptP2Multisig, OutScriptProvablyUnspendable ]
+    [ OutScript, OutScriptP2PKH, OutScriptP2PK, OutScriptP2SH, OutScriptTimeLock, OutScriptIf, OutScriptP2Multisig, OutScriptHashPreImage, OutScriptProvablyUnspendable ]
 }
 
 INPUT_SCRIPT_CLASS_BY_TYPE = {
     _cls.type : _cls for _cls in
-    [ InScript, InScriptP2PKH, InScriptP2PK, InScriptP2SH, InScriptP2Multisig ]
+    [ InScript, InScriptP2PKH, InScriptP2PK, InScriptP2SH, InScriptP2Multisig, InScriptHashPreImage, InScriptIf ]
 }
 
 
@@ -584,12 +907,25 @@ def outscript_from_raw(outscript, allow_p2sh = True):
         # type, but failed getting deserialized as such.
         return OutScript(outscript)
 
-def inscript_from_raw(inscript, type_or_outscript):
+def inscript_from_raw(inscript, type_or_outscript = None):
     """
     Create an InScript object from a raw inscript, with the proper InScript subclass.
     :param type_or_outscript: either a ScriptType, or a OutScript instance whose
         script-type we need to match.
     """
+    
+    if type_or_outscript is None:
+        type_or_outscript = ScriptType.OTHER
+    
+    # support timelock: for timelock outscripts, inscript_type corresponds
+    # to outscript.inner_script.type
+    try:
+        inner_script = type_or_outscript.inner_script
+    except AttributeError:
+        pass
+    else:
+        return inscript_from_raw(inscript, inner_script)
+    
     try:
         # if caller provided an OutScript, we use its InScriptType directly
         inscript_cls = type_or_outscript.InScriptType
@@ -599,4 +935,19 @@ def inscript_from_raw(inscript, type_or_outscript):
         inscript_cls = INPUT_SCRIPT_CLASS_BY_TYPE[script_type]
     return inscript_cls(inscript)
 
+def strip_if_scripts(if_outscript, if_inscript):
+    """
+    Given an OutScriptIf and an InScriptIf satisfying it, return the "active" parts
+    of them.  I.e., if if_inscript.condition_value=True, return the "true" branch, else
+    the "false" branch.
+    :return: a 2-tuple of (OutScript, InScript)
+    """
+    # extract condition_value from inscript:
+    cond = if_inscript.condition_value
+    # extract corresponding branch of outscript:
+    inner_outscript = if_outscript.inner_scripts[cond]
+    # extract inner inscript, with script_type corresponding to inner_outscript:
+    inner_inscript = if_inscript.get_inner_inscript(inner_outscript)
+    return inner_outscript, inner_inscript
+    
 ################################################################################
