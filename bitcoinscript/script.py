@@ -4,6 +4,7 @@ Definition of the concrete (in and out) script types.
 
 import datetime
 import itertools
+import math
 
 from .misc import classproperty
 from .basic import (
@@ -295,7 +296,8 @@ class OutScriptTimeLock(OutScript):
     def _compose(cls, inner_script, locktime, **kwargs):
         # convert locktime to bytes
         if isinstance(locktime, int):
-            locktime = locktime.to_bytes(4, byteorder = 'little')
+            num_bytes = max(1, math.ceil(locktime.bit_length() / 8))
+            locktime = locktime.to_bytes(num_bytes, byteorder = 'little')
         return compose_from_template(cls._TEMPLATE, locktime = locktime, inner_script = inner_script, **kwargs)
 
 class OutScriptP2Multisig(OutScript):
