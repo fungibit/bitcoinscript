@@ -5,6 +5,13 @@ Verify all scripts in the blockchain.
 This script is useful for testing this package.
 """
 
+# TBD: there is a known error:
+# 09Script validation failed for tx 6a26d2ecb67f27d1fa5524763b49029d7106e91e3cc05743073461a719776192, input #0
+#    UNEXPECTED ERROR: ArgumentsInvalidError EvalScript: OP_CHECKMULTISIG args invalid: not enough sigs on stack
+# To fix, need to avoid using the P2SH-flag in verify_script() for txs from before the time P2SH was activated
+# (correct date to use -- to be figured out)
+
+
 #from argparse import ArgumentParser
 
 from chainscan import iter_txs
