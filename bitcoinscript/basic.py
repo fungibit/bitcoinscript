@@ -4,6 +4,7 @@ this package.
 """
 
 import functools
+import itertools
 from enum import Enum
 import bitcoin.base58
 from bitcoin.core.script import CScript as _CScript, CScriptInvalidError as _CScriptInvalidError
@@ -97,6 +98,7 @@ def _suppress_script_errors(is_script_type_func):
             _CScriptInvalidError,  # invalid/malformed script
             InvalidScriptError,  # invalid/malformed script
             IndexError,  # expected a longer script
+            StopIteration,  # expected a longer script
             ):
             return False
     return wrapper
@@ -254,19 +256,21 @@ def is_outscript_provably_unspendable(outscript):
 
 def get_hash160_from_outscript_p2pkh(outscript):
     """ Extract the hash160 data from a P2PKH raw outscript. """
-    outscript = outscript[2 : ]
-    n = outscript[0]
-    return outscript[1 : n+1]
+    hash160 = next(itertools.islice(iter_script_parts(outscript), 2, None))
+    if not isinstance(hash160, bytes):
+        return None
+    return hash160
 
 def get_pubkey_from_outscript_p2pk(outscript):
     """ Extract the pubkey data from a P2PK raw outscript. """
-    n = outscript[0]
-    outscript = outscript[1 : n+1]
+    pk = next(iter_script_parts(outscript))
+    if not isinstance(pk, bytes):
+        return None
     try:
-        _get_pubkey_format(outscript)
+        _get_pubkey_format(pk)
     except ValueError:
         return None
-    return outscript
+    return pk
 
 def get_hash160_from_outscript_p2pk(outscript):
     """ Extract pubkey's hash160 from a P2PK raw outscript. """
@@ -277,9 +281,10 @@ def get_hash160_from_outscript_p2pk(outscript):
 
 def get_hash160_from_outscript_p2sh(outscript):
     """ Extract the hash160 data from a P2SH raw outscript. """
-    outscript = outscript[1 : ]
-    n = outscript[0]
-    return outscript[1 : n+1]
+    hash160 = next(itertools.islice(iter_script_parts(outscript), 1, None))
+    if not isinstance(hash160, bytes):
+        return None
+    return hash160
 
 def get_script_hash160_for_p2sh(outscript, check_size = True):
     """
